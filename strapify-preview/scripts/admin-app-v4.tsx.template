@@ -1,0 +1,10 @@
+import { ComponentPreviewPanel } from './components/ComponentPreviewPanel';
+
+export default {
+  bootstrap(app: any) {
+    app.injectContentManagerComponent('editView', 'right-links', {
+      name: 'component-preview-panel',
+      Component: ComponentPreviewPanel,
+    });
+  },
+};

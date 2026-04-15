@@ -1,0 +1,8 @@
+import { ComponentPreviewPanel } from './components/ComponentPreviewPanel';
+
+export default {
+  bootstrap(app: any) {
+    const contentManagerApis = app.getPlugin('content-manager').apis;
+    contentManagerApis.addEditViewSidePanel([ComponentPreviewPanel]);
+  },
+};

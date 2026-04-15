@@ -1,0 +1,253 @@
+import { useEffect, useMemo, useState } from 'react';
+
+import { Box, Button, Flex, Typography } from '@strapi/design-system';
+import { useCMEditViewDataManager } from '@strapi/helper-plugin';
+import { ExternalLink } from '@strapi/icons';
+
+type SchemaAttribute = {
+  type?: string;
+  component?: string;
+  repeatable?: boolean;
+};
+
+type PreviewItem = {
+  uid: string;
+  displayName: string;
+  previewPath: string;
+  count: number;
+};
+
+type PreviewManifest = {
+  items?:
+    | Array<{
+        uid: string;
+        file?: string;
+      }>
+    | Record<string, unknown>;
+};
+
+const collectPreviewItems = (
+  value: unknown,
+  attributes: Record<string, SchemaAttribute> | undefined,
+  components: Record<string, any>
+): PreviewItem[] => {
+  const ordered: PreviewItem[] = [];
+  const deduped = new Map<string, PreviewItem>();
+
+  if (!value || !attributes || typeof value !== 'object') return ordered;
+
+  for (const [attributeName, attribute] of Object.entries(attributes)) {
+    const attributeValue = (value as Record<string, unknown>)[attributeName];
+
+    if (!attributeValue) continue;
+
+    if (attribute.type === 'dynamiczone' && Array.isArray(attributeValue)) {
+      const seen = new Map<string, PreviewItem>();
+
+      for (const item of attributeValue) {
+        if (!item || typeof item !== 'object') continue;
+
+        const componentUid = (item as { __component?: string }).__component;
+        if (!componentUid) continue;
+
+        const existing = seen.get(componentUid);
+
+        if (existing) {
+          existing.count += 1;
+          continue;
+        }
+
+        const componentSchema = components[componentUid];
+        const previewPath = componentSchema?.info?.preview;
+
+        if (!previewPath) continue;
+
+        const entry: PreviewItem = {
+          uid: componentUid,
+          displayName: componentSchema?.info?.displayName ?? componentUid,
+          previewPath,
+          count: 1,
+        };
+
+        seen.set(componentUid, entry);
+        ordered.push(entry);
+      }
+
+      continue;
+    }
+
+    if (attribute.type === 'component' && attribute.component) {
+      const componentUid = attribute.component;
+      const componentSchema = components[componentUid];
+      const previewPath = componentSchema?.info?.preview;
+
+      if (!previewPath) continue;
+
+      const increment =
+        attribute.repeatable && Array.isArray(attributeValue) ? attributeValue.length : 1;
+
+      if (increment === 0) continue;
+
+      const existing = deduped.get(componentUid);
+
+      if (existing) {
+        existing.count += increment;
+        continue;
+      }
+
+      deduped.set(componentUid, {
+        uid: componentUid,
+        displayName: componentSchema?.info?.displayName ?? componentUid,
+        previewPath,
+        count: increment,
+      });
+    }
+  }
+
+  const dedupedSorted = Array.from(deduped.values()).sort((left, right) =>
+    left.displayName.localeCompare(right.displayName)
+  );
+
+  return [...ordered, ...dedupedSorted];
+};
+
+const ComponentPreviewPanel = () => {
+  const { initialData, layout } = useCMEditViewDataManager();
+  const [availablePreviewUids, setAvailablePreviewUids] = useState<Set<string> | null>(null);
+
+  useEffect(() => {
+    let isMounted = true;
+
+    const loadManifest = async () => {
+      try {
+        const response = await fetch('/uploads/component-previews/manifest.json');
+
+        if (!response.ok) throw new Error(`Manifest request failed with ${response.status}`);
+
+        const manifest = (await response.json()) as PreviewManifest;
+        const nextUids = new Set(
+          Array.isArray(manifest.items)
+            ? manifest.items.map((item) => item.uid)
+            : Object.keys(manifest.items ?? {})
+        );
+
+        if (isMounted) setAvailablePreviewUids(nextUids);
+      } catch {
+        if (isMounted) setAvailablePreviewUids(new Set());
+      }
+    };
+
+    loadManifest();
+
+    return () => {
+      isMounted = false;
+    };
+  }, []);
+
+  const previewItems = useMemo(() => {
+    const attributes = layout?.contentType?.attributes as Record<string, SchemaAttribute> | undefined;
+    const components = layout?.components || {};
+
+    const items = collectPreviewItems(initialData, attributes, components);
+
+    if (availablePreviewUids) {
+      return items.filter((item) => availablePreviewUids.has(item.uid));
+    }
+
+    return items;
+  }, [availablePreviewUids, initialData, layout]);
+
+  if (!initialData || Object.keys(initialData).length === 0) {
+    return (
+      <Box padding={4}>
+        <Typography variant="omega" textColor="neutral600">
+          Save this entry once to load component previews.
+        </Typography>
+      </Box>
+    );
+  }
+
+  if (previewItems.length === 0) {
+    return (
+      <Box padding={4}>
+        <Typography variant="omega" textColor="neutral600">
+          No component previews are available for this entry yet.
+        </Typography>
+      </Box>
+    );
+  }
+
+  return (
+    <Box padding={4}>
+      <Typography variant="sigma" textColor="neutral600" style={{ marginBottom: '16px', display: 'block' }}>
+        Component previews
+      </Typography>
+      <Flex direction="column" gap={4} alignItems="stretch">
+        {previewItems.map((item, index) => {
+          const imageUrl = item.previewPath.startsWith('/') ? item.previewPath : `/${item.previewPath}`;
+
+          return (
+            <Box
+              key={`${index}-${item.uid}`}
+              borderColor="neutral200"
+              background="neutral0"
+              hasRadius
+              padding={3}
+              shadow="tableShadow"
+              style={{ width: '100%', overflow: 'hidden', boxSizing: 'border-box' }}
+            >
+              <Flex direction="column" gap={3} alignItems="stretch">
+                <img
+                  src={imageUrl}
+                  alt={item.displayName}
+                  style={{
+                    width: '100%',
+                    maxWidth: '100%',
+                    display: 'block',
+                    borderRadius: '8px',
+                    border: '1px solid #dcdce4',
+                    objectFit: 'cover',
+                    boxSizing: 'border-box',
+                  }}
+                />
+                <Flex justifyContent="space-between" alignItems="flex-start" gap={2}>
+                  <Box style={{ minWidth: 0, flex: 1 }}>
+                    <Typography variant="sigma" textColor="neutral800">
+                      {item.displayName}
+                    </Typography>
+                    <Typography
+                      variant="pi"
+                      textColor="neutral600"
+                      style={{
+                        display: 'block',
+                        overflowWrap: 'anywhere',
+                        wordBreak: 'break-word',
+                      }}
+                    >
+                      {item.uid}
+                      {item.count > 1 ? ` • ${item.count} instances` : ''}
+                    </Typography>
+                  </Box>
+                  <Button
+                    variant="tertiary"
+                    size="S"
+                    as="a"
+                    href={imageUrl}
+                    target="_blank"
+                    rel="noreferrer"
+                    endIcon={<ExternalLink />}
+                    style={{ flexShrink: 0 }}
+                  >
+                    Open
+                  </Button>
+                </Flex>
+              </Flex>
+            </Box>
+          );
+        })}
+      </Flex>
+    </Box>
+  );
+};
+
+export { ComponentPreviewPanel };

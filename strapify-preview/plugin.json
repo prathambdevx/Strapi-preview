@@ -1,0 +1,15 @@
+{
+  "name": "strapify-preview",
+  "version": "1.0.0",
+  "description": "Capture real website screenshots of every Strapi CMS component and wire them into the Strapi 5 admin panel as live previews. Works with any frontend framework.",
+  "author": "Pratham Bhatia",
+  "skills": [
+    "skills/strapi-component-previews.md"
+  ],
+  "commands": [
+    "commands/strapify-preview.md"
+  ],
+  "agents": [
+    "agents/uid-discovery.md"
+  ]
+}
